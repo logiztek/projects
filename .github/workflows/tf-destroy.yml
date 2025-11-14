@@ -1,0 +1,167 @@
+################################################################################
+# GitHub Actions Workflow: Destroy MedPal Infrastructure
+################################################################################
+#
+# DESCRIPTION (Non-Technical):
+#   This workflow completely removes all MedPal infrastructure from AWS.
+#   ⚠️  WARNING: This deletes everything (Lambda, API Gateway, etc.)
+#   Use this only when you want to stop using MedPal and stop paying for AWS.
+#
+# DESCRIPTION (Technical):
+#   This GitHub Actions workflow runs terraform destroy with safety confirmations
+#   to prevent accidental infrastructure deletion.
+#
+# SAFETY FEATURES:
+#   - Requires manual trigger (not automatic)
+#   - Requires typing "destroy" as confirmation input
+#   - Shows what will be deleted before confirming
+#
+# HOW TO USE (DANGER - THIS DELETES EVERYTHING):
+#   1. Go to GitHub Actions tab in your repository
+#   2. Click "Destroy MedPal Infrastructure" workflow
+#   3. Click "Run workflow" button
+#   4. Type "destroy" in the confirmation field exactly as shown
+#   5. Click "Run workflow"
+#   6. Wait for the workflow to complete
+#
+# COST IMPACT:
+#   - After running this, you will no longer be charged for MedPal resources
+#   - Any SMS functionality will stop working immediately
+#   - To restart, run the deploy workflow (tf-apply.yml)
+#
+# REQUIREMENTS:
+#   - AWS credentials must be configured in GitHub Secrets (same as deploy)
+#
+################################################################################
+
+name: Destroy MedPal Infrastructure
+
+# Trigger Configuration
+# ============================================================================
+# Manual trigger with confirmation input for safety
+# Requires user to type "destroy" to prevent accidental deletions
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_destroy:
+        description: '⚠️  Type "destroy" to confirm (this will DELETE all infrastructure)'
+        required: true
+        default: ''
+        type: string
+
+
+# Permissions Configuration
+# ============================================================================
+# Minimal permissions needed for the workflow
+
+permissions:
+  contents: read
+  id-token: write  # Needed if using OIDC for AWS credentials
+
+
+# Jobs Definition
+# ============================================================================
+
+jobs:
+
+  # =========================================================================
+  # Job: Destroy Infrastructure
+  # =========================================================================
+
+  destroy:
+    name: Destroy All Resources
+    runs-on: ubuntu-latest
+    
+    # Safety check: Only run if user typed "destroy" exactly
+    if: github.event.inputs.confirm_destroy == 'destroy'
+    
+    steps:
+      # Step 1: Display warning
+      - name: Display Warning
+        run: |
+          echo "⚠️  ⚠️  ⚠️  WARNING ⚠️  ⚠️  ⚠️ "
+          echo ""
+          echo "You are about to PERMANENTLY DELETE all MedPal infrastructure:"
+          echo "  - Lambda Function"
+          echo "  - API Gateway"
+          echo "  - IAM Roles and Policies"
+          echo "  - CloudWatch Logs"
+          echo ""
+          echo "This action CANNOT be undone!"
+          echo "To restart MedPal, you must deploy again using the apply workflow."
+          echo ""
+      
+      # Step 2: Checkout code
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      # Step 3: Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: latest
+      
+      # Step 4: Configure AWS credentials
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: us-east-1
+      
+      # Step 5: Initialize Terraform
+      - name: Terraform Init
+        working-directory: medpal-v1/infra
+        run: |
+          echo "Initializing Terraform..."
+          terraform init
+      
+      # Step 6: Create destroy plan
+      - name: Terraform Plan (Destroy)
+        working-directory: medpal-v1/infra
+        run: |
+          echo ""
+          echo "=== RESOURCES THAT WILL BE DELETED ==="
+          echo ""
+          terraform plan -destroy -no-color
+          echo ""
+          echo "=== END OF DELETION PLAN ==="
+          echo ""
+      
+      # Step 7: Execute destroy
+      - name: Terraform Destroy
+        working-directory: medpal-v1/infra
+        run: |
+          echo ""
+          echo "🗑️  Destroying MedPal infrastructure..."
+          echo ""
+          terraform destroy \
+            -auto-approve \
+            -lock=true \
+            -input=false
+      
+      # Step 8: Confirm deletion
+      - name: Destruction Complete
+        run: |
+          echo "✅ MedPal infrastructure has been completely destroyed!"
+          echo ""
+          echo "📋 Summary:"
+          echo "  - All AWS resources have been deleted"
+          echo "  - SMS service is now offline"
+          echo "  - Billing for MedPal resources has stopped"
+          echo ""
+          echo "🔄 To redeploy MedPal:"
+          echo "  1. Go to GitHub Actions"
+          echo "  2. Select 'Deploy MedPal Infrastructure' workflow"
+          echo "  3. Click 'Run workflow'"
+          echo ""
+
+
+# Workflow-Level Configuration
+# ============================================================================
+
+concurrency:
+  # Prevent multiple destroy operations simultaneously
+  group: destroy-medpal
+  cancel-in-progress: false

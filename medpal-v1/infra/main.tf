@@ -136,7 +136,6 @@ resource "aws_lambda_function" "handler" {
   # These can be accessed via os.getenv() in handler.py
   environment {
     variables = {
-      AWS_REGION = var.aws_region
       MODEL_ID   = var.model_id
     }
   }
